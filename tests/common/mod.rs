@@ -5,14 +5,14 @@ use std::{
     rc::Rc,
 };
 
-use clone_gc::{Field, GCP, GCTracer, GetGCManager, Trace};
+use clone_gc::{Field, GCP, GCTracer, GetGCManager, GraphClone, Trace};
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct BiGraph(GCP<BiGraphInner>);
 pub struct BiGraphInner {
     pub first: Field<Option<BiGraph>>,
     pub second: Field<Option<BiGraph>>,
-    pub id: usize,
+    pub id: Field<usize>,
     tracker: Tracker,
 }
 pub type Tracker = Rc<RefCell<Vec<usize>>>;
@@ -23,7 +23,7 @@ impl BiGraph {
             BiGraphInner {
                 first: Field::new(None),
                 second: Field::new(None),
-                id,
+                id: Field::new(id),
                 tracker,
             },
         ))
@@ -55,17 +55,44 @@ impl Display for BiGraph {
 impl Display for BiGraphInner {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match (&*self.first.get(), &*self.second.get()) {
-            (None, None) => write!(f, "{}", self.id),
-            (None, Some(s)) => write!(f, "{} -> {}", self.id, s.id),
-            (Some(n), None) => write!(f, "{} -> {}", self.id, n.id),
+            (None, None) => write!(f, "{}", self.id.get()),
+            (None, Some(s)) => write!(f, "{} -> {}", self.id.get(), s.id.get()),
+            (Some(n), None) => write!(f, "{} -> {}", self.id.get(), n.id.get()),
             (Some(n), Some(s)) => {
-                write!(f, "{} -> {};{}", self.id, n.id, s.id)
+                write!(f, "{} -> {};{}", self.id.get(), n.id.get(), s.id.get())
             }
         }
     }
 }
 impl Drop for BiGraphInner {
     fn drop(&mut self) {
-        self.tracker.borrow_mut().push(self.id);
+        self.tracker.borrow_mut().push(*self.id.get());
+    }
+}
+
+impl Into<GCP<BiGraphInner>> for BiGraph {
+    fn into(self) -> GCP<BiGraphInner> {
+        self.0
+    }
+}
+impl From<GCP<BiGraphInner>> for BiGraph {
+    fn from(value: GCP<BiGraphInner>) -> Self {
+        BiGraph(value)
+    }
+}
+
+impl GraphClone for BiGraph {
+    fn graph_clone(&self, m: &mut clone_gc::GraphCloneState) -> Self {
+        Self(self.0.graph_clone(m))
+    }
+}
+impl GraphClone for BiGraphInner {
+    fn graph_clone(&self, m: &mut clone_gc::GraphCloneState) -> Self {
+        Self {
+            first: self.first.graph_clone(m),
+            second: self.second.graph_clone(m),
+            id: self.id.graph_clone(m),
+            tracker: self.tracker.clone(),
+        }
     }
 }

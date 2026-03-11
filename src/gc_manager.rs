@@ -13,6 +13,12 @@ use crate::{
 
 #[derive(Clone)]
 pub struct GCManager(Rc<RefCell<GCManagerInner>>);
+impl PartialEq for GCManager {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Eq for GCManager {}
 
 pub struct GCManagerInner {
     pub(crate) dirty_root: DirtyRoot,

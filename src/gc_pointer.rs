@@ -1,10 +1,12 @@
 use std::{
     cell::{RefCell, RefMut},
+    hash::Hash,
     ops::Deref,
     rc::Rc,
 };
 
 use crate::{
+    clone::CloneData,
     dirty_list::DirtyData,
     gc_manager::{GCManager, GetGCManager},
     trace::Trace,
@@ -12,16 +14,21 @@ use crate::{
 
 pub struct GCP<V: Trace + 'static>(pub(crate) Rc<GCPInner<V>>); // A Garbage Collected Pointer should be cloneable cheaply to create a new pointer
 
-pub struct GCPInner<V: Trace> {
+pub struct GCPInner<V: Trace + 'static> {
     pub(crate) gc_meta: RefCell<GCData>,
+    pub(crate) clone_data: RefCell<CloneData<V>>,
     pub(crate) value: Option<V>, // A GC pointer should allow its value to be nulled to break cycles
 }
 
 /// Core GCP usage functions
 impl<V: Trace + 'static> GCP<V> {
     pub fn new<M: GetGCManager>(manager_ref: &M, val: V) -> GCP<V> {
-        GCP(Rc::new(GCPInner {
-            value: Some(val),
+        Self(Self::new_raw(manager_ref, Some(val)))
+    }
+    pub(crate) fn new_raw<M: GetGCManager>(manager_ref: &M, val: Option<V>) -> Rc<GCPInner<V>> {
+        Rc::new(GCPInner {
+            value: val,
+            clone_data: RefCell::new(CloneData { clone: None }),
             gc_meta: RefCell::new(GCData {
                 trace: TraceData {
                     trace_id: 0,
@@ -35,7 +42,7 @@ impl<V: Trace + 'static> GCP<V> {
                     next_dirty: None,
                 },
             }),
-        }))
+        })
     }
 
     /// Creates a new garbage collected point, belonging to the same garbage collector as this value
@@ -44,6 +51,9 @@ impl<V: Trace + 'static> GCP<V> {
     }
     pub(crate) fn meta(&self) -> RefMut<'_, GCData> {
         self.0.gc_meta.borrow_mut()
+    }
+    pub(crate) fn clone_data(&self) -> RefMut<'_, CloneData<V>> {
+        self.0.clone_data.borrow_mut()
     }
 }
 impl<V: Trace + 'static> Deref for GCP<V> {
@@ -63,6 +73,13 @@ impl<V: Trace> Clone for GCP<V> {
         Self(self.0.clone())
     }
 }
+impl<V: Trace> Hash for GCP<V> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let ptr = Rc::as_ptr(&self.0);
+        ptr.hash(state);
+    }
+}
+
 impl<V: Trace + 'static> GetGCManager for GCP<V> {
     fn get_manager(&self) -> GCManager {
         self.meta().gc.clone()

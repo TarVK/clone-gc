@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::HashSet, rc::Rc, time::Instant};
 
-use rand::{RngExt, SeedableRng, rngs::StdRng, seq::SliceRandom};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 
 use clone_gc::GCManager;
 mod common;
@@ -51,10 +51,10 @@ fn leak() {
     let mut found = HashSet::new();
     let mut stack = Vec::from([root.clone()]);
     while let Some(node) = stack.pop() {
-        if found.contains(&node.id) {
+        if found.contains(&node.id.get()) {
             continue;
         }
-        found.insert(node.id);
+        found.insert(node.id.get());
         stack.push((*node.first.get()).clone().unwrap());
         stack.push((*node.second.get()).clone().unwrap());
     }

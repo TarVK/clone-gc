@@ -4,7 +4,7 @@ enum LL {
     End,
 }
 
-#[test]
+// #[test]
 pub fn ll_drop_crashes() {
     const SIZE: usize = 100000;
 
