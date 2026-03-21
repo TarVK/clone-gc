@@ -1,8 +1,11 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{GCManager, GCP, Trace, gc_pointer::GCPInner, weak_gc_pointer::DynGCP};
+use crate::{
+    GCManager, GCP, GetGCManager, Trace, gc_pointer::GCPInner, root::GCPRoot,
+    weak_gc_pointer::DynGCP,
+};
 
-// The data stored on the GCP to allow for cloning
+// The data stored on the GCP to allow for cloning (and serialization)
 pub(crate) struct CloneData<V: Trace + 'static> {
     pub clone: Option<Rc<GCPInner<V>>>,
 }
@@ -45,13 +48,22 @@ impl<V: Trace + GraphClone + 'static> CloneInternalValue for GCPInner<V> {
 
         let clone_data = self.clone_data.borrow_mut();
         let clone_inner = &**clone_data.clone.as_ref().unwrap();
-        unsafe {
-            let ptr = clone_inner as *const GCPInner<V> as *mut GCPInner<V>;
-            (*ptr).value = Some(cloned);
-        }
+        clone_inner.set_value(cloned);
     }
     fn reset_clone_data(&self) {
         self.clone_data.borrow_mut().clone = None
+    }
+}
+impl<V> GCPInner<V>
+where
+    V: Trace,
+{
+    pub(crate) fn set_value(&self, val: V) {
+        assert!(if let None = self.value { true } else { false });
+        unsafe {
+            let ptr = self as *const GCPInner<V> as *mut GCPInner<V>;
+            (*ptr).value = Some(val);
+        }
     }
 }
 
@@ -81,6 +93,18 @@ impl GCManager {
         }
 
         (state.manager, K::from(out))
+    }
+}
+
+// Deep cloning is the default for a root
+impl<V> Clone for GCPRoot<V>
+where
+    V: Trace + GraphClone,
+{
+    fn clone(&self) -> Self {
+        let manager = self.get_manager();
+        let (_, root_clone) = manager.deep_clone(self.0.clone().unwrap());
+        GCPRoot(Some(root_clone))
     }
 }
 

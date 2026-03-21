@@ -9,6 +9,7 @@ use crate::{
     clone::CloneData,
     dirty_list::DirtyData,
     gc_manager::{GCManager, GetGCManager},
+    serialization::SerializeData,
     trace::Trace,
 };
 
@@ -17,6 +18,7 @@ pub struct GCP<V: Trace + 'static>(pub(crate) Rc<GCPInner<V>>); // A Garbage Col
 pub struct GCPInner<V: Trace + 'static> {
     pub(crate) gc_meta: RefCell<GCData>,
     pub(crate) clone_data: RefCell<CloneData<V>>,
+    pub(crate) serialize_data: RefCell<SerializeData>,
     pub(crate) value: Option<V>, // A GC pointer should allow its value to be nulled to break cycles
 }
 
@@ -29,6 +31,7 @@ impl<V: Trace + 'static> GCP<V> {
         Rc::new(GCPInner {
             value: val,
             clone_data: RefCell::new(CloneData { clone: None }),
+            serialize_data: RefCell::new(SerializeData { index: None }),
             gc_meta: RefCell::new(GCData {
                 trace: TraceData {
                     trace_id: 0,

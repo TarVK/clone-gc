@@ -1,7 +1,8 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, hash::Hash, rc::Rc};
 
 use crate::{GCTracer, GraphClone, GraphCloneState, Trace};
 
+#[derive(Default, Eq, PartialEq, PartialOrd, Ord, Clone)]
 pub struct Field<X>(RefCell<Rc<X>>);
 
 impl<X> Field<X> {
@@ -27,5 +28,14 @@ impl<V: Trace> Trace for Field<V> {
 impl<V: GraphClone> GraphClone for Field<V> {
     fn graph_clone(&self, m: &mut GraphCloneState) -> Self {
         Self(self.0.graph_clone(m))
+    }
+}
+
+impl<X> Hash for Field<X>
+where
+    X: Hash,
+{
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.get().hash(state);
     }
 }

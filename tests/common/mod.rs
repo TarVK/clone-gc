@@ -6,6 +6,7 @@ use std::{
 };
 
 use clone_gc::{Field, GCP, GCTracer, GetGCManager, GraphClone, Trace};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct BiGraph(GCP<BiGraphInner>);
@@ -93,6 +94,32 @@ impl GraphClone for BiGraphInner {
             second: self.second.graph_clone(m),
             id: self.id.graph_clone(m),
             tracker: self.tracker.clone(),
+        }
+    }
+}
+
+// Garbage collected linked list
+pub type GCLL = GCP<GCLLInner>;
+pub type DropCount = Rc<RefCell<usize>>;
+#[derive(Serialize, Deserialize)]
+pub enum GCLLInner {
+    Next(GCLL, #[serde(skip)] DropCount),
+    // End(Field<Option<GCLL>>), // Optional to make a cycle
+    End(RefCell<Option<GCLL>>),
+}
+impl Trace for GCLLInner {
+    fn trace(&self, tracer: &mut clone_gc::GCTracer) {
+        match self {
+            GCLLInner::Next(gcp, _) => tracer.mark(gcp),
+            GCLLInner::End(m) => m.trace(tracer),
+        }
+    }
+}
+impl Drop for GCLLInner {
+    fn drop(&mut self) {
+        match self {
+            GCLLInner::Next(_, ref_cell) => *ref_cell.borrow_mut() += 1,
+            GCLLInner::End(_) => (),
         }
     }
 }

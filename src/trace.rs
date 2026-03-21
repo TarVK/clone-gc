@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, rc::Rc};
+use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
 use crate::{gc_pointer::GCP, weak_gc_pointer::WeakGCP};
 
@@ -19,6 +19,11 @@ impl GCTracer {
     }
 }
 
+impl<V: Trace> Trace for RefCell<V> {
+    fn trace(&self, tracer: &mut GCTracer) {
+        self.borrow().trace(tracer);
+    }
+}
 impl<V: Trace> Trace for Rc<V> {
     fn trace(&self, tracer: &mut GCTracer) {
         let inner = &**self;

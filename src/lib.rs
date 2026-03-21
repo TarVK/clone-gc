@@ -1,16 +1,25 @@
 mod clone;
+mod deserialization;
+mod diagram_rc;
 mod dirty_list;
 mod gc_manager;
 mod gc_pointer;
+mod root;
+mod serialization;
 mod trace;
 mod utils;
 mod weak_gc_pointer;
 
 pub use crate::clone::GraphClone;
 pub use crate::clone::GraphCloneState;
+pub use crate::deserialization::GraphDeserializer;
+pub use crate::diagram_rc::DRc;
+pub use crate::diagram_rc::DWeak;
 pub use crate::gc_manager::GCManager;
 pub use crate::gc_manager::GetGCManager;
 pub use crate::gc_pointer::GCP;
+pub use crate::serialization::DynSerializer;
+pub use crate::serialization::JSONDynSerializer;
 pub use crate::trace::GCTracer;
 pub use crate::trace::Trace;
 pub use crate::utils::Field;
