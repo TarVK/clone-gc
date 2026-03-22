@@ -5,74 +5,64 @@ use serde::{Deserialize, Deserializer, de::DeserializeOwned, de::Error};
 
 use crate::{
     GCManager, GCP, JSONDynSerializer, Trace,
+    root::GCPRoot,
     serialization::{
         GCPSerializationData, GraphSerializer, ID, RootedSerialize, Support, SupportSerializer,
     },
 };
 
-// The main deserialization entry
-// impl<'de, V> GCP<V>
-// where
-//     V: Trace + Deserialize<'de>,
-// {
-//     pub fn graph_deserializer() -> GraphDeserializer<JSONDynDeserializer> {
-//         self.graph_deserializer_advanced(JSONDynDeserializer)
-//     }
-//     pub fn graph_deserializer_advanced<D>(dyn_serializer: D) -> GraphSerializer<D>
-//     where
-//         D: DynDeserializer + Clone,
-//     {
-//         GraphDeserializer { dyn_serializer }
-//     }
-// }
-// impl<V> Serialize for GCPRoot<V>
-// where
-//     V: Trace + Serialize,
-// {
-//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-//     where
-//         S: Serializer,
-//     {
-//         self.0
-//             .as_ref()
-//             .unwrap()
-//             .graph_serializer()
-//             .serialize(serializer)
-//     }
-// }
-
-// The deserialization logic
-#[derive(Default)]
-pub struct GraphDeserializeState {
-    manager: Option<GCManager>,
-    support_deserializers: HashMap<u32, DynTypeDeserializer>,
-    nodes: HashMap<u32, Rc<dyn Any>>,
-}
-pub struct DynTypeDeserializer(
-    Box<dyn FnOnce(&mut dyn ErasedDeserializer) -> Result<(), erased_serde::Error>>,
-);
-impl GraphDeserializeState {
-    pub fn get_or_create_node<'de, V: PtrDeserializeData + 'static>(
-        &mut self,
-        id: ID,
-    ) -> Option<Rc<V>> {
-        let manager = &self
-            .manager
-            .as_ref()
-            .expect("Deserialization is only allowed from GraphDeserializer or GCPRoot");
-        let node = self
-            .nodes
-            .entry(id)
-            .or_insert_with(|| Rc::new(V::create_container(manager)));
-        node.clone().downcast().ok()
+// The main deserialization entries
+impl<'de, V> GCP<V>
+where
+    V: Trace + DeserializeOwned,
+{
+    pub fn graph_deserializer() -> GraphDeserializeData<Self, JSONDynSerializer> {
+        Self::graph_deserializer_advanced::<JSONDynSerializer>()
+    }
+    pub fn graph_deserializer_advanced<D>() -> GraphDeserializeData<Self, D>
+    where
+        D: DynDeserializer<'de> + 'de,
+    {
+        GraphDeserializeData(PhantomData)
     }
 }
+impl<'de, V> Deserialize<'de> for GCPRoot<V>
+where
+    V: Trace + DeserializeOwned,
+{
+    fn deserialize<D>(deserializer: D) -> Result<GCPRoot<V>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Ok(GCPRoot(Some(
+            GCP::<V>::graph_deserializer().deserialize(deserializer)?,
+        )))
+    }
+}
+
+pub struct GraphDeserializeData<V, DD>(PhantomData<(V, DD)>);
+impl<'de, V, DD> GraphDeserializeData<V, DD>
+where
+    V: Deserialize<'de>,
+    DD: DynDeserializer<'de> + 'de,
+{
+    fn deserialize<D>(&self, deserializer: D) -> Result<V, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let p = GraphDeserializer::<V, DD>::deserialize(deserializer)?;
+        Ok(p.root)
+    }
+}
+
+// Traits to allow multiple references to the same data to be created
 pub trait PtrDeserializeData: DeserializeOwned {
     type V: DeserializeOwned;
     fn create_container(manager: &GCManager) -> Self;
     fn set_value(&self, value: Self::V);
 }
 
+// Implementations of the graph deserialization for GCP
 impl<'de, V> Deserialize<'de> for GCP<V>
 where
     V: Trace + DeserializeOwned,
@@ -96,30 +86,36 @@ where
         self.0.set_value(value);
     }
 }
-// pub(crate) fn dyn_deserialize<'de, S, V, D>(data: &D, deserializer: S) -> Result<S::Ok, S::Error>
-// where
-//     S: Deserializer,
-//     V: Deserialize<'de>,
-//     D: IterSerializeData<V>,
-// {
-//     let id = data.with_serialize_data(|data| data.index.unwrap());
 
-//     DESERIALIZE_STATE.with_borrow_mut(|state| {
-//         state.remaining_rec_depth -= 1;
-//     });
-
-//     let data = GCPSerializationData::Data {
-//         ptr: id,
-//         value: data.get_value(),
-//     };
-//     let res = data.serialize(serializer);
-
-//     DESERIALIZE_STATE.with_borrow_mut(|state| {
-//         state.remaining_rec_depth += 1;
-//     });
-
-//     res
-// }
+// The deserialization logic
+#[derive(Default)]
+pub struct GraphDeserializeState {
+    manager: Option<GCManager>,
+    support_deserializers: HashMap<ID, DynTypeDeserializer>,
+    nodes: HashMap<ID, Rc<dyn Any>>,
+}
+thread_local! {
+    static DESERIALIZE_STATE: RefCell<GraphDeserializeState> = RefCell::new(Default::default());
+}
+pub struct DynTypeDeserializer(
+    Box<dyn FnOnce(&mut dyn ErasedDeserializer) -> Result<(), erased_serde::Error>>,
+);
+impl GraphDeserializeState {
+    pub fn get_or_create_node<'de, V: PtrDeserializeData + 'static>(
+        &mut self,
+        id: ID,
+    ) -> Option<Rc<V>> {
+        let manager = &self
+            .manager
+            .as_ref()
+            .expect("Deserialization is only allowed from GraphDeserializer or GCPRoot");
+        let node = self
+            .nodes
+            .entry(id)
+            .or_insert_with(|| Rc::new(V::create_container(manager)));
+        node.clone().downcast().ok()
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(untagged)]
@@ -170,26 +166,6 @@ where
     Ok(container_clone)
 }
 
-// impl<'de, DD> Deserialize<'de> for DynTypeDeserializer<DD>
-// where
-//     DD: Deserialize<'de>,
-// {
-//     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-//     where
-//         D: serde::Deserializer<'de>,
-//     {
-//         DD::deserialize(deserializer)?;
-//         Ok(DynTypeDeserializer(PhantomData))
-//     }
-// }
-// trait DynTypeDeserializer {
-//     fn deserialize(deserializer: &dyn Deserializer) -> ();
-// }
-
-thread_local! {
-    static DESERIALIZE_STATE: RefCell<GraphDeserializeState> = RefCell::new(Default::default());
-}
-
 impl<'de, DD> Deserialize<'de> for SupportSerializer<DD>
 where
     DD: DynDeserializer<'de> + 'de,
@@ -219,9 +195,6 @@ where
     }
 }
 
-// pub struct GraphDeserialize<R> {
-//     root: PhantomData<R>,
-// }
 pub struct GraphDeserializer<R, DD> {
     pub(crate) dyn_deserializer: PhantomData<DD>,
     pub root: R,

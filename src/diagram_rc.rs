@@ -7,10 +7,11 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer, de::DeserializeOwned};
 
 use crate::{
-    DynSerializer, JSONDynSerializer,
+    DynSerializer, GCManager, JSONDynSerializer,
+    deserialization::{PtrDeserializeData, rec_deserialize},
     serialization::{
         DynIterSerialize, GraphSerializer, PtrDynSerializeData, PtrSerializeData, SerializeData,
         dyn_serialize, rec_serialize,
@@ -21,13 +22,13 @@ use crate::{
 pub struct DRc<V>(Rc<DRcInner<V>>);
 pub struct DRcInner<V> {
     serialize_data: RefCell<SerializeData>,
-    value: V,
+    value: Option<V>,
 }
 impl<V> DRc<V> {
     pub fn new(val: V) -> Self {
         DRc(Rc::new(DRcInner {
             serialize_data: RefCell::new(SerializeData { index: None }),
-            value: val,
+            value: Some(val),
         }))
     }
     pub fn downgrade(val: &Self) -> DWeak<V> {
@@ -61,12 +62,12 @@ where
 impl<V> Deref for DRc<V> {
     type Target = V;
     fn deref(&self) -> &Self::Target {
-        &(*self.0).value
+        &(*self.0).value.as_ref().unwrap()
     }
 }
 impl<V> AsRef<V> for DRc<V> {
     fn as_ref(&self) -> &V {
-        &(*self.0).value
+        &(*self.0).value.as_ref().unwrap()
     }
 }
 impl<V> Clone for DRc<V> {
@@ -120,7 +121,7 @@ where
     V: Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.value.fmt(f)
+        self.0.value.as_ref().unwrap().fmt(f)
     }
 }
 impl<V> From<V> for DRc<V> {
@@ -129,7 +130,7 @@ impl<V> From<V> for DRc<V> {
     }
 }
 
-// Implementation of serialization
+// Implementation of serialization/deserialization
 impl<V> Serialize for DRcInner<V>
 where
     V: Serialize,
@@ -158,7 +159,7 @@ impl<V> PtrSerializeData<V> for DRc<V> {
         f(&mut *self.0.serialize_data.borrow_mut())
     }
     fn get_value(&self) -> &V {
-        &self.0.value
+        &(*self.0).value.as_ref().unwrap()
     }
 }
 impl<V> PtrDynSerializeData<V> for DRc<V>
@@ -175,7 +176,7 @@ impl<V> PtrSerializeData<V> for DRcInner<V> {
         f(&mut *self.serialize_data.borrow_mut())
     }
     fn get_value(&self) -> &V {
-        &self.value
+        self.value.as_ref().unwrap()
     }
 }
 impl<V> DynIterSerialize for DRcInner<V>
@@ -184,6 +185,38 @@ where
 {
     fn reset_serialize_data(&self) {
         self.with_serialize_data(|data| data.index = None);
+    }
+}
+
+impl<'de, V> Deserialize<'de> for DRc<V>
+where
+    V: DeserializeOwned + 'static,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        rec_deserialize(deserializer)
+    }
+}
+impl<V> PtrDeserializeData for DRc<V>
+where
+    V: DeserializeOwned + 'static,
+{
+    type V = V;
+    fn create_container(_manager: &GCManager) -> Self {
+        DRc(Rc::new(DRcInner {
+            serialize_data: RefCell::new(SerializeData { index: None }),
+            value: None,
+        }))
+    }
+    fn set_value(&self, value: Self::V) {
+        assert!(if let None = self.0.value { true } else { false });
+        let p = &*self.0;
+        unsafe {
+            let ptr = p as *const DRcInner<V> as *mut DRcInner<V>;
+            (*ptr).value = Some(value);
+        }
     }
 }
 

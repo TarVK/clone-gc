@@ -1,7 +1,7 @@
 use std::{cell::RefCell, collections::VecDeque, marker::PhantomData, rc::Rc};
 
 use erased_serde::{Serialize as ErasedSerialize, Serializer as ErasedSerializer};
-use serde::{Deserialize, Serialize, Serializer, ser::SerializeSeq};
+use serde::{Deserialize, Serialize, Serializer, ser::Error};
 
 use crate::{GCP, Trace, deserialization::DynDeserializer, gc_pointer::GCPInner, root::GCPRoot};
 
@@ -42,7 +42,7 @@ where
 
 // Traits to allow multiple references to this data to be serialized only once
 pub(crate) struct SerializeData {
-    pub index: Option<u32>,
+    pub index: Option<ID>,
 }
 pub(crate) trait PtrSerializeData<V> {
     fn with_serialize_data<R, F: FnOnce(&mut SerializeData) -> R>(&self, f: F) -> R;
@@ -231,7 +231,7 @@ pub struct SupportSerializer<D> {
     pub(crate) depth: u32,
 }
 #[derive(Serialize, Deserialize)]
-pub struct Support<S>(pub(crate) Vec<(u32, S)>);
+pub struct Support<S>(pub(crate) Vec<(ID, S)>);
 impl<D: DynSerializer> Serialize for SupportSerializer<D> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -247,7 +247,8 @@ impl<D: DynSerializer> Serialize for SupportSerializer<D> {
                 break;
             };
 
-            let serializable = D::serialize_dyn(&*dyn_serialize);
+            let serializable =
+                D::serialize_dyn(&*dyn_serialize).map_err(|err| S::Error::custom(err))?;
             support.push((id, serializable));
 
             SERIALIZE_STATE.with_borrow_mut(|state| {
@@ -307,19 +308,19 @@ where
 // A dynamic serializer to optionally break away from recursion and prevent stack-overflows
 pub trait DynSerializer {
     type S: Serialize;
-    fn serialize_dyn(data: &dyn ErasedSerialize) -> Self::S;
+    fn serialize_dyn(data: &dyn ErasedSerialize) -> Result<Self::S, erased_serde::Error>;
 }
 
 #[derive(Clone)]
 pub struct JSONDynSerializer;
 impl DynSerializer for JSONDynSerializer {
     type S = String;
-    fn serialize_dyn(data: &dyn ErasedSerialize) -> Self::S {
+    fn serialize_dyn(data: &dyn ErasedSerialize) -> Result<Self::S, erased_serde::Error> {
         let mut out = Vec::new();
         let json_serializer = &mut serde_json::Serializer::new(&mut out);
         let mut erased = <dyn ErasedSerializer>::erase(json_serializer);
-        data.erased_serialize(&mut erased);
+        data.erased_serialize(&mut erased)?;
 
-        String::from_utf8(out).unwrap()
+        Ok(String::from_utf8(out).unwrap())
     }
 }

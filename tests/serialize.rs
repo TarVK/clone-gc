@@ -3,7 +3,7 @@ use std::{cell::RefCell, rc::Rc, time::Instant};
 
 use clone_gc::{DRc, Field, GCManager, GCP, GraphDeserializer, JSONDynSerializer};
 use common::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[test]
 pub fn serialize_ll() {
@@ -59,26 +59,29 @@ pub fn deserialize_ll() {
     assert_eq!(count, SIZE);
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[serde(untagged)]
+enum DAGInner {
+    Sync(u32),
+    Node(DAG, DAG),
+}
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+pub struct DAG(DRc<DAGInner>);
+impl DAG {
+    fn sync(val: u32) -> Self {
+        Self(DRc::new(DAGInner::Sync(val)))
+    }
+    fn node(left: DAG, right: DAG) -> Self {
+        Self(DRc::new(DAGInner::Node(left, right)))
+    }
+}
+
 #[test]
 pub fn serialize_rc() {
-    #[derive(Serialize)]
-    #[serde(untagged)]
-    enum DAGInner {
-        Sync(u32),
-        Node(DAG, DAG),
-    }
-    #[derive(Serialize, Clone)]
-    struct DAG(DRc<DAGInner>);
-    impl DAG {
-        fn sync(val: u32) -> Self {
-            Self(DRc::new(DAGInner::Sync(val)))
-        }
-        fn node(left: DAG, right: DAG) -> Self {
-            Self(DRc::new(DAGInner::Node(left, right)))
-        }
-    }
-
-    let n1 = DAG::sync(1);
+    serialize_rc_string(1);
+}
+pub fn serialize_rc_string(v1: u32) -> (DAG, String) {
+    let n1 = DAG::sync(v1);
     let n2 = DAG::sync(2);
     let n3 = DAG::sync(3);
     let n4 = DAG::node(n1.clone(), n2.clone());
@@ -89,4 +92,18 @@ pub fn serialize_rc() {
 
     let out = serde_json::to_string_pretty(&n8.0.graph_serializer()).unwrap();
     println!("DAG: {}", out);
+    (n8, out)
+}
+
+#[test]
+pub fn deserialize_rc() {
+    let (dag_src, dag_text) = serialize_rc_string(1);
+    let (dag_src2, _) = serialize_rc_string(2);
+
+    let dag: GraphDeserializer<DAG, JSONDynSerializer> =
+        serde_json::from_str(&dag_text).expect("Deserializes");
+    let dag = dag.root;
+
+    assert_eq!(dag_src, dag);
+    assert_ne!(dag_src2, dag);
 }

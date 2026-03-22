@@ -1,5 +1,7 @@
 use std::{cell::RefCell, hash::Hash, rc::Rc};
 
+use serde::{Deserialize, Serialize};
+
 use crate::{GCTracer, GraphClone, GraphCloneState, Trace};
 
 #[derive(Default, Eq, PartialEq, PartialOrd, Ord, Clone)]
@@ -37,5 +39,29 @@ where
 {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.get().hash(state);
+    }
+}
+
+impl<X> Serialize for Field<X>
+where
+    X: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.get().serialize(serializer)
+    }
+}
+
+impl<'de, X> Deserialize<'de> for Field<X>
+where
+    X: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(Self::new(X::deserialize(deserializer)?))
     }
 }

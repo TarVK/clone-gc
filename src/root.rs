@@ -5,7 +5,7 @@ use crate::{GCManager, GCP, GetGCManager, Trace};
 /// A rooted GCP which:
 /// - performs deep clones on clone (see clone.rs)
 /// - performs garbage collection on drop, cleaning all reachable state iff it is only reachable from this root
-/// - performs serialization from this root (see serialization.rs)
+/// - performs serialization from this root (see serialization.rs/deserialization.rs)
 pub struct GCPRoot<V: Trace + 'static>(pub(crate) Option<GCP<V>>);
 impl<V> GCPRoot<V>
 where
