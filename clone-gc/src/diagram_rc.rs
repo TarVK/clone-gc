@@ -10,7 +10,7 @@ use std::{
 use serde::{Deserialize, Serialize, Serializer, de::DeserializeOwned};
 
 use crate::{
-    DynSerializer, GCManager, JSONDynSerializer,
+    DynSerializer, GCManager, GraphClone, GraphCloneState, JSONDynSerializer,
     deserialization::{PtrDeserializeData, rec_deserialize},
     serialization::{
         DynIterSerialize, GraphSerializer, PtrDynSerializeData, PtrSerializeData, SerializeData,
@@ -39,6 +39,12 @@ impl<V> DRc<V> {
     }
     pub fn weak_count(val: &Self) -> usize {
         Rc::weak_count(&val.0)
+    }
+}
+impl<V> GraphClone for DRc<V> {
+    /// Shallowly copy the data, for a deep copy a GCP should be used.
+    fn graph_clone(&self, _m: &mut GraphCloneState) -> Self {
+        self.clone()
     }
 }
 impl<V> DRc<V>

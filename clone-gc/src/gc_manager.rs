@@ -24,6 +24,7 @@ pub struct GCManagerInner {
     pub(crate) dirty_root: DirtyRoot,
     trace_id: u64,
 }
+const GC_EQ_MESSAGE: &str = "All connected GCPs should belong to the same garbage collector.";
 
 /// The main garbage collection functions
 impl GCManager {
@@ -74,6 +75,7 @@ impl GCManager {
         while let Some(pointer) = tracer.queue.pop_back() {
             let already_traced = pointer.with_meta(|meta| {
                 // Only increment if this was a pointer (and hence not a root occurrence from being dirty)
+                assert!(&meta.gc == self, "{GC_EQ_MESSAGE}");
                 let dirty_data = &mut meta.dirty;
                 let increment_ref = (!dirty_data.is_dirty) as usize;
                 dirty_data.is_dirty = false;
@@ -120,6 +122,7 @@ impl GCManager {
         let mut tracer = GCTracer::new(outside);
         while let Some(pointer) = tracer.queue.pop_front() {
             let already_traced = pointer.with_meta(|meta| {
+                assert!(&meta.gc == self, "{GC_EQ_MESSAGE}");
                 let already_traced = meta.trace.trace_id == trace_id;
                 meta.trace.is_reachable = true;
                 meta.trace.trace_id = trace_id;
@@ -151,6 +154,7 @@ impl GCManager {
         while let Some(pointer) = tracer.queue.pop_back() {
             let ref_count = pointer.get_ref_count();
             let will_drop = pointer.with_meta(|meta| {
+                assert!(&meta.gc == self, "{GC_EQ_MESSAGE}");
                 // Reset the current to 0 if the count originates from a previous trace
                 let already_traced = meta.trace.trace_id == trace_id;
                 meta.trace.trace_id = trace_id;

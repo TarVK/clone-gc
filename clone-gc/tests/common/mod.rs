@@ -6,14 +6,18 @@ use std::{
 };
 
 use clone_gc::{Field, GCP, GCTracer, GetGCManager, GraphClone, Trace};
+use clone_gc_macros::{GraphClone, Trace};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, Trace, GraphClone)]
 pub struct BiGraph(GCP<BiGraphInner>);
+#[derive(Trace, GraphClone)]
 pub struct BiGraphInner {
     pub first: Field<Option<BiGraph>>,
     pub second: Field<Option<BiGraph>>,
     pub id: Field<usize>,
+    #[trace(skip)]
+    #[graphClone(shallow)]
     tracker: Tracker,
 }
 pub type Tracker = Rc<RefCell<Vec<usize>>>;
@@ -34,17 +38,6 @@ impl Deref for BiGraph {
     type Target = BiGraphInner;
     fn deref(&self) -> &Self::Target {
         &*self.0
-    }
-}
-impl Trace for BiGraph {
-    fn trace(&self, tracer: &mut GCTracer) {
-        self.0.trace(tracer);
-    }
-}
-impl Trace for BiGraphInner {
-    fn trace(&self, tracer: &mut GCTracer) {
-        self.first.trace(tracer);
-        self.second.trace(tracer);
     }
 }
 
@@ -82,38 +75,30 @@ impl From<GCP<BiGraphInner>> for BiGraph {
     }
 }
 
-impl GraphClone for BiGraph {
-    fn graph_clone(&self, m: &mut clone_gc::GraphCloneState) -> Self {
-        Self(self.0.graph_clone(m))
-    }
-}
-impl GraphClone for BiGraphInner {
-    fn graph_clone(&self, m: &mut clone_gc::GraphCloneState) -> Self {
-        Self {
-            first: self.first.graph_clone(m),
-            second: self.second.graph_clone(m),
-            id: self.id.graph_clone(m),
-            tracker: self.tracker.clone(),
-        }
-    }
-}
+// impl GraphClone for BiGraph {
+//     fn graph_clone(&self, m: &mut clone_gc::GraphCloneState) -> Self {
+//         Self(self.0.graph_clone(m))
+//     }
+// }
+// impl GraphClone for BiGraphInner {
+//     fn graph_clone(&self, m: &mut clone_gc::GraphCloneState) -> Self {
+//         Self {
+//             first: self.first.graph_clone(m),
+//             second: self.second.graph_clone(m),
+//             id: self.id.graph_clone(m),
+//             tracker: self.tracker.clone(),
+//         }
+//     }
+// }
 
 // Garbage collected linked list
 pub type GCLL = GCP<GCLLInner>;
 pub type DropCount = Rc<RefCell<usize>>;
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Trace)]
 pub enum GCLLInner {
     Next(GCLL, #[serde(skip)] DropCount),
     // End(Field<Option<GCLL>>), // Optional to make a cycle
     End(RefCell<Option<GCLL>>),
-}
-impl Trace for GCLLInner {
-    fn trace(&self, tracer: &mut clone_gc::GCTracer) {
-        match self {
-            GCLLInner::Next(gcp, _) => tracer.mark(gcp),
-            GCLLInner::End(m) => m.trace(tracer),
-        }
-    }
 }
 impl Drop for GCLLInner {
     fn drop(&mut self) {

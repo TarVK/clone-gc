@@ -1,4 +1,9 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    hash::Hash,
+    rc::Rc,
+};
 
 use crate::{
     GCManager, GCP, GetGCManager, Trace, gc_pointer::GCPInner, root::GCPRoot,
@@ -114,18 +119,29 @@ impl<X: GraphClone> GraphClone for RefCell<X> {
         RefCell::new(self.borrow().graph_clone(m))
     }
 }
-impl<X: GraphClone> GraphClone for Rc<X> {
-    fn graph_clone(&self, m: &mut GraphCloneState) -> Self {
-        let val: &X = &*self;
-        Rc::new(val.graph_clone(m))
-    }
-}
 impl<X: GraphClone> GraphClone for Option<X> {
     fn graph_clone(&self, m: &mut GraphCloneState) -> Self {
         match self {
             Some(v) => Some(v.graph_clone(m)),
             None => None,
         }
+    }
+}
+impl<X: GraphClone> GraphClone for Vec<X> {
+    fn graph_clone(&self, m: &mut GraphCloneState) -> Self {
+        self.iter().map(|v| v.graph_clone(m)).collect()
+    }
+}
+impl<X: GraphClone + Eq + Hash> GraphClone for HashSet<X> {
+    fn graph_clone(&self, m: &mut GraphCloneState) -> Self {
+        self.iter().map(|v| v.graph_clone(m)).collect()
+    }
+}
+impl<X: GraphClone + Eq + Hash, Y: GraphClone> GraphClone for HashMap<X, Y> {
+    fn graph_clone(&self, m: &mut GraphCloneState) -> Self {
+        self.iter()
+            .map(|(k, v)| (k.graph_clone(m), v.graph_clone(m)))
+            .collect()
     }
 }
 
@@ -151,3 +167,11 @@ impl_graph_clone!(i16);
 impl_graph_clone!(i32);
 impl_graph_clone!(i64);
 impl_graph_clone!(isize);
+impl_graph_clone!(String);
+
+// Rc is cloned shallowly
+impl<X> GraphClone for Rc<X> {
+    fn graph_clone(&self, _m: &mut GraphCloneState) -> Self {
+        self.clone()
+    }
+}
