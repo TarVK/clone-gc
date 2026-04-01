@@ -24,12 +24,12 @@ impl<X> Field<X> {
 
 impl<V: Trace> Trace for Field<V> {
     fn trace(&self, tracer: &mut GCTracer) {
-        self.get().trace(tracer);
+        (*self.get()).trace(tracer);
     }
 }
 impl<V: GraphClone> GraphClone for Field<V> {
     fn graph_clone(&self, m: &mut GraphCloneState) -> Self {
-        Self(self.0.graph_clone(m))
+        Self::new((*self.get()).graph_clone(m))
     }
 }
 
